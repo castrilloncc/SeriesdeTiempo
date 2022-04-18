@@ -1,0 +1,95 @@
+---
+title: "Modelo SARIMA"
+author: "José Miguel Arias Mejía"
+date: "4/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Caudal del Río Colorado
+Se quiere analizar cómo varía el caudal del Río Colorado mes a mes. Es de esperar que este presente variaciones, ya que a lo largo del año suceden varias estaciones que lo incrementan o lo reducen. Por lo tanto, se puede suponer que se presentará estacionalidad. Los datos y el modelo se elaboran en base al ejercicio disponible en el sitio web del Eberly College of Science, de la Universidad Estatal de Pennsylvania (https://online.stat.psu.edu/stat510/lesson/4/4.2).
+
+## Importación de paquetes y datos
+
+### Importación de paquetes
+
+```{r}
+library(astsa)
+```
+
+### Importación de datos
+
+```{r}
+flow <- ts(scan("D:/Series de Tiempo/coloradoflow.dat"))
+```
+
+## Gráfico de la serie de tiempo
+```{r}
+plot(flow, type = "b")
+```
+Se observa que no hay una tendencia de largo plazo en los datos, y que hay un efecto periódico (en este caso, mensual). El efecto periódico se puede establecer mejor si se mira el promedio de los valores correspondientes a cada mes:
+
+```{r}
+flowm <- matrix(flow, ncol = 12, byrow = TRUE)
+col.means <- apply(flowm, 2, mean)
+plot(col.means, type = "b", main = "Monthly means plot for Flow", xlab = "Month", ylab = "Mean")
+```
+
+Hacia mitad de año, se eleva el caudal (efecto que se puede atribuir al derretimiento de la nieve), y hacia final de año se disminuye. Por lo tanto, un modelo ARIMA sencillo podría interpretar equivocadamente las variaciones estacionales del caudal. Aunque un modelo AR(12) podría captar el efecto estacional de 12 meses atrás, se requeriría generar 11 estimadores adicionales que pueden no ser muy útiles y que pueden llevar al sobreajuste del modelo. Por este motivo, es preferible hacer un modelo SARIMA.
+
+Los modelos SARIMA tienen la estructura $SARIMA (p,d,q) \times (P,D,Q)_{x}$, donde los parámetros en minúscula p, d y q hacen referencia a la parte no estacional del modelo, los parámetros en mayúscula a la parte estacional, y la x describe el número de periodos a considerar para la parte estacional.
+
+## Diferenciación estacional y autocorrelogramas
+
+Se elaboran autocorrelogramas asumiendo que posiblemmente la estacionalidad sea cada año (12 meses). Para esto, se diferencia cada observación respecto al valor 12 meses atrás. Esta diferenciación permite evaluar el componente estacional. 
+
+```{r}
+diff12 <- diff(flow, 12)
+```
+
+```{r}
+acf2(diff12, 48)
+```
+
+Se observa en el ACF una caída gradual a partir del primer periodo, y en el PACF una caída súbita a partir del primer periodo, por lo que se considera que la parte no estacional del modelo puede tener un componente AR(1). Además, se observa que hacia los periodos 12, 24 y 36 se presentan valores estadísticamente distintos a cero en el PACF, lo que sugiere un componente estacional MA(1). Teniendo en cuenta que se había hecho una diferenciación estacional previa, el modelo planteado sería un $SARIMA (1,0,0)\times(0,1,1)_{12}$. 
+
+## Creación del modelo
+
+De acuerdo al planteamiento anterior, se construye el modelo $SARIMA(1,0,0)\times(0,1,1)_{12}$.
+
+```{r}
+sarima(flow, 1,0,0,0,1,1,12)
+```
+
+Se encuentran los parámetros 0.51 para el AR(1) no estacional, y -0.88 para el MA(1) estacional. Es importante mencionar que el Q-Q plot muestra que las colas de la distribución no se corresponden muy bien con una distribución normal. Una posibilidad es que la varianza de la serie no sea homocedástica, por lo que podría funcionar mejor un modelo ARCH. No obstante, se continuará con el modelo actual para efectuar un pronóstico.
+
+## Pronóstico
+
+La función _sarima.for()_ del paquete _astsa_ permite hacer el pronóstico deseado. Sus parámetros son la serie de datos, el número de periodos a pronosticar, y los parámetros del modelo SARIMA a aplicar.
+
+```{r}
+sarima.for(flow, 24, 1, 0, 0, 0, 1, 1, 12)
+
+```
+
+El resultado es un pronóstico para los próximos dos años, que la función grafica automáticamente. Como alternativa, se puede hacer un modelo SARIMA usando las funciones convencionales de R de la siguiente manera:
+
+```{r}
+themodel <- arima(flow, order = c(1,0,0), seasonal = list(order = c(0,1,1), period = 12))
+themodel
+```
+
+Obteniendo unos parámetros bastante similares a los hallados con la función anterior (AR(1) no estacional de 0.52 y MA(1) estacional de -0.87). Además, se puede realizar y graficar un pronóstico:
+
+```{r}
+prediction <- predict(themodel, n.ahead = 24)
+
+plot(flow, type = "b")
+lines(prediction[["pred"]], type = "b", col = "red")
+
+```
+
+Así, finalmente, se obtiene por dos vías un pronóstico a partir de un modelo SARIMA para el caudal del Río Colorado.
